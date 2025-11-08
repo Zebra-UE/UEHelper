@@ -1,8 +1,8 @@
 package main
 
 import (
-	loganalysis "UEHelper/tools/loganalysis"
-	"fmt"
+	"UEHelper/tools/objlist"
+	"UEHelper/tools/pakview"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,11 +23,9 @@ func main1() {
 
 func main() {
 
-	Path := "E:/Game/grgame/custom/release/S1Game/596701/Win64/S1Game_release_0.596701.596701.596701_596701_Development_Win64_OverSea/S1Game/Saved/Logs/S1Game.log"
-	result := loganalysis.Analysis(Path)
-	fmt.Print(result)
+	pakview.Load("E:/Game/grgame/custom/release/S1Game/633821/Win64/S1Game/Content/Paks/pakchunk0-Windows.pak")
 }
 
 func main3() {
-
+	objlist.Load("E:/Game/grgame/custom/release/S1Game/628706/Win64/S1Game_release_0.628706.628706.628706_628706_Development_Win64_OverSea/S1Game/Saved/Profiling/NordLand-Windows-628706/Pid29160_ObjectStatistics_1.dumpobj")
 }
