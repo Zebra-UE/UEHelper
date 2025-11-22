@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Crash Viewer</title>
+
+  <!-- xterm.css 可以由打包工具/客户端静态资源提供，也可以保留 CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial; margin: 0; height: 100vh; display: flex; }
+    .sidebar { width: 280px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow:auto; }
+    .content { flex: 1; display: flex; flex-direction: column; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom:6px; background:#f7f7f7; }
+    .list-item:hover { background:#eee; }
+    .list-item.active { background:#dfefff; }
+    .controls { padding: 8px 12px; border-bottom: 1px solid #eee; }
+    #term { flex: 1; }
+    .small { font-size: 13px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="controls">
+      <div class="small">点击左侧项向后端请求数据并在右侧展示</div>
+    </div>
+
+    <ul id="items" class="list">
+      <li class="list-item" data-id="crash-001">Crash #001</li>
+      <li class="list-item" data-id="crash-002">Crash #002</li>
+      <li class="list-item" data-id="crash-003">Crash #003</li>
+      <li class="list-item" data-id="crash-004">Crash #004</li>
+    </ul>
+  </div>
+
+  <div class="content">
+    <div class="controls">
+      <button id="clearBtn">清空</button>
+      <span id="status" class="small" style="margin-left:12px;"></span>
+    </div>
+    <div id="term"></div>
+  </div>
+
+  <!-- 将脚本从 crash.ts 编译/打包为 crash.js 并放到静态目录后引入（示例使用 module） -->
+  <script type="module" src="/static/crash.js"></script>
+</body>
+</html>

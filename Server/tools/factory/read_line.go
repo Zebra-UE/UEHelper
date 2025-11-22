@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-func ReadLines(path string, processLine func(string)) {
+func ReadLines(path string, processLine func(string) bool) bool {
 	file, err := os.Open(path)
 
 	defer file.Close()
@@ -17,14 +17,14 @@ func ReadLines(path string, processLine func(string)) {
 	_, err = file.Read(buffer)
 	if err != nil {
 		fmt.Println("Error reading file:", err)
-		return
+		return false
 	}
 
 	if !bytes.Equal(buffer, bom) {
 		_, err = file.Seek(0, 0)
 		if err != nil {
 			fmt.Println("Error seeking file:", err)
-			return
+			return false
 		}
 	}
 
@@ -33,6 +33,9 @@ func ReadLines(path string, processLine func(string)) {
 	scanner.Buffer(buf, 1024*1024)  // 设置最大行长度（1MB）
 	for scanner.Scan() {
 		line := scanner.Text()
-		processLine(line)
+		if !processLine(line) {
+			return false
+		}
 	}
+	return true
 }

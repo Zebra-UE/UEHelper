@@ -1,27 +1,23 @@
 {
   "name": "client",
   "version": "1.0.0",
+  
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "type-check": "vue-tsc --noEmit"
+    "build": "webpack --config webpack.config.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  
   "dependencies": {
-    "axios": "^1.13.1",
-    "element-plus": "^2.11.5",
-    "vue": "^3.5.22"
+    "axios": "^1.13.2",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/node": "^24.9.2",
-    "@vitejs/plugin-vue": "^6.0.1",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.12",
-    "vue-tsc": "^3.1.2"
+    "webpack": "^5.103.0",
+    "webpack-cli": "^6.0.1"
   }
 }

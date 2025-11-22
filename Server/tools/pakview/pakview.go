@@ -2,6 +2,7 @@ package pakview
 
 import (
 	"UEHelper/tools/misc"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,16 @@ import (
 
 type FMacro struct {
 	ENABLE_PAKFILE_RUNTIME_PRUNING int32
+}
+
+func decrypt(input []byte) ([]byte, error) {
+	aesKey := []byte{0xca, 0x9f, 0x79, 0x24, 0x9b, 0x5c, 0xf7, 0x79, 0x6, 0x96, 0x9e, 0x43, 0x99, 0x86, 0x11, 0xfd, 0x52, 0xd1, 0x9d, 0xce, 0x55, 0x4f, 0x50, 0x4b, 0x55, 0x73, 0xbf, 0x46, 0x5, 0x4f, 0x39, 0x9b}
+	input, err := misc.Decrypt(input, aesKey)
+	if err != nil {
+		return nil, errors.New("")
+	}
+
+	return input, nil
 }
 
 func InitMacro() FMacro {
@@ -214,14 +225,68 @@ type FPakInfo struct {
 }
 
 type FPakFile struct {
-	NumEntries   int32
-	PathHashSeed uint64
+	MountPoint        string
+	NumEntries        int32
+	EncodedPakEntries []byte
+	Files             []FPakEntry
+	PathHashSeed      uint64
 
 	directoryIndex           *FDirectoryIndex
 	prunedDirectoryIndex     *FDirectoryIndex
 	bWillPruneDirectoryIndex bool
 	bNeedsLegacyPruning      bool
 	bSomePakNeedsPruning     bool
+}
+
+func DecodePakEntry(input []byte, pakInfo *FPakInfo) *FPakEntry {
+	result := FPakEntry{}
+	CompressionBlockSize := uint32(0)
+	_ = CompressionBlockSize
+	offset := 0
+	value := binary.LittleEndian.Uint32(input[offset:4])
+	offset += 4
+	if input[3]&0x3f == 0x3f {
+		CompressionBlockSize = binary.LittleEndian.Uint32(input[offset : offset+4])
+		offset += 4
+	} else {
+		CompressionBlockSize = (uint32(value) >> 23) & 0x3F
+	}
+	result.compressionMethodIndex = (value >> 23) & 0x3f
+	bIsOffset32BitSafe := (value & (1 << 31)) != 0
+	if bIsOffset32BitSafe {
+		result.offset = int64(binary.LittleEndian.Uint32(input[offset : offset+4]))
+		offset += 4
+	} else {
+		result.offset = int64(binary.LittleEndian.Uint64(input[offset : offset+4]))
+		offset += 8
+	}
+	bIsUncompressedSize32BitSafe := (value & (1 << 30)) != 0
+	if bIsUncompressedSize32BitSafe {
+		result.uncompressedSize = int64(binary.LittleEndian.Uint32(input[offset : offset+4]))
+		offset += 4
+	} else {
+		result.uncompressedSize = int64(binary.LittleEndian.Uint64(input[offset : offset+4]))
+		offset += 8
+	}
+	if result.compressionMethodIndex != 0 {
+		if (value & (1 << 29)) != 0 {
+			result.size = int64(binary.LittleEndian.Uint32(input[offset : offset+4]))
+			offset += 4
+		} else {
+			result.size = int64(binary.LittleEndian.Uint64(input[offset : offset+4]))
+			offset += 8
+		}
+	} else {
+		result.size = result.uncompressedSize
+	}
+
+	return &result
+}
+
+func findFileInPak(pakFile *FPakFile) *FPakEntry {
+	var result FPakEntry
+
+	return &result
 }
 
 type FPakCompressedBlock struct {
@@ -284,9 +349,7 @@ func (me *FPakEntry) Serialize(reader FArchive, version int32) {
 	me.size = readNumerical[int64](reader, 8)
 	me.uncompressedSize = readNumerical[int64](reader, 8)
 	if version < PakFile_Version_FNameBasedCompressionMethod {
-		var LegacyCompressionMethod int32
-		LegacyCompressionMethod = readNumerical[int32](reader, 4)
-
+		LegacyCompressionMethod := readNumerical[int32](reader, 4)
 		if LegacyCompressionMethod == COMPRESS_None {
 			me.compressionMethodIndex = 0
 		} else if LegacyCompressionMethod&COMPRESS_ZLIB_DEPRECATED > 0 {
@@ -330,149 +393,156 @@ func LoadIndex(reader FArchive, pakInfo FPakInfo) (*FPakFile, error) {
 			return nil, errors.New("")
 		}
 		if pos != pakInfo.IndexOffset {
-			return
+			return nil, errors.New("")
 		}
 		PrimaryIndexData := make([]byte, pakInfo.IndexSize)
-		aesKey := []byte{0xca, 0x9f, 0x79, 0x24, 0x9b, 0x5c, 0xf7, 0x79, 0x6, 0x96, 0x9e, 0x43, 0x99, 0x86, 0x11, 0xfd, 0x52, 0xd1, 0x9d, 0xce, 0x55, 0x4f, 0x50, 0x4b, 0x55, 0x73, 0xbf, 0x46, 0x5, 0x4f, 0x39, 0x9b}
+
 		reader.Read(PrimaryIndexData)
 		// Decrypt
 		{
 			if pakInfo.bEncryptedIndex {
 
 				//aesKey := []byte("yp95JJtc93kGlp5DmYYR/VLRnc5VT1BLVXO/RgVPOZs=")
-				PrimaryIndexData, err = misc.Decrypt(PrimaryIndexData, aesKey)
+				PrimaryIndexData, err = decrypt(PrimaryIndexData)
 				if err != nil {
-
+					return nil, errors.New("")
 				}
 			}
 
-			//reader.Seek(pakInfo.IndexOffset, 0)
 		}
-		var memoryReader FMemoryReader
-		memoryReader.data = PrimaryIndexData
-		//memoryReader = &FMemoryReader({data:Pri})
-		MountPoint := readString(&memoryReader)
-		if len(MountPoint) > 0 && !strings.HasSuffix(MountPoint, "/") {
-			MountPoint = MountPoint + "/"
+		memoryReader := FMemoryReader{data: PrimaryIndexData}
+
+		pakFile.MountPoint = readString(&memoryReader)
+		if len(pakFile.MountPoint) > 0 && !strings.HasSuffix(pakFile.MountPoint, "/") {
+			pakFile.MountPoint = pakFile.MountPoint + "/"
 		}
 
 		pakFile.NumEntries = readNumerical[int32](&memoryReader, 4)
 
 		pakFile.PathHashSeed = readNumerical[uint64](&memoryReader, 8)
 
-		var bReaderHasPathHashIndex bool
-		var PathHashIndexOffset int64
-		var PathHashIndexSize int64
-		var PathHashIndexHash FSHAHash
-
-		bReaderHasPathHashIndex = readBool(&memoryReader)
-		if bReaderHasPathHashIndex {
-			PathHashIndexOffset = readNumerical[int64](&memoryReader, 8)
-			PathHashIndexSize = readNumerical[int64](&memoryReader, 8)
-			memoryReader.Read(PathHashIndexHash.Hash[:])
-			bReaderHasPathHashIndex = PathHashIndexOffset >= 0
-		}
-
-		var bReaderHasFullDirectoryIndex bool
-		var FullDirectoryIndexOffset int64
-		var FullDirectoryIndexSize int64
-		var FullDirectoryIndexHash FSHAHash
-
-		bReaderHasFullDirectoryIndex = readBool(&memoryReader)
-		if bReaderHasFullDirectoryIndex {
-			FullDirectoryIndexOffset = readNumerical[int64](&memoryReader, 8)
-			FullDirectoryIndexSize = readNumerical[int64](&memoryReader, 8)
-			memoryReader.Read(FullDirectoryIndexHash.Hash[:])
-			bReaderHasFullDirectoryIndex = FullDirectoryIndexOffset >= 0
-		}
-		fmt.Print(FullDirectoryIndexOffset)
-		fmt.Print(FullDirectoryIndexSize)
+		SecondaryIndexConfig := readSecondaryIndexConfig(&memoryReader)
 		//EncodedPakEntries
-		var EncodedPakEntriesNum int32
-		EncodedPakEntriesNum = readNumerical[int32](&memoryReader, 4)
-		EncodedPakEntries := make([]byte, EncodedPakEntriesNum)
-		memoryReader.Read(EncodedPakEntries)
 
-		var FilesNum int32
-		FilesNum = readNumerical[int32](&memoryReader, 4)
+		EncodedPakEntriesNum := readNumerical[int32](&memoryReader, 4)
+		pakFile.EncodedPakEntries = make([]byte, EncodedPakEntriesNum)
+		memoryReader.Read(pakFile.EncodedPakEntries)
+
+		FilesNum := readNumerical[int32](&memoryReader, 4)
 		if FilesNum < 0 {
-			return
+			return nil, errors.New("")
 		}
+		if FilesNum > 0 {
+			pakFile.Files = make([]FPakEntry, FilesNum)
 
-		Files := make([]FPakEntry, FilesNum)
-
-		for i := 0; i < int(FilesNum); i++ {
-			Files[i].Serialize(&memoryReader, pakInfo.Version)
-		}
-
-		var bWillUseFullDirectoryIndex bool
-		var bWillUsePathHashIndex bool
-		var bReadFullDirectoryIndex bool
-
-		if bReaderHasPathHashIndex && bReaderHasFullDirectoryIndex {
-			bWillUseFullDirectoryIndex = true
-			bWillUsePathHashIndex = !bWillUseFullDirectoryIndex
-			bReadFullDirectoryIndex = true
-		} else if bReaderHasPathHashIndex {
-			bWillUsePathHashIndex = true
-			bWillUseFullDirectoryIndex = false
-			bReadFullDirectoryIndex = false
-		} else if bReaderHasFullDirectoryIndex {
-			bWillUsePathHashIndex = false
-			bWillUseFullDirectoryIndex = true
-			bReadFullDirectoryIndex = true
-		} else {
-			return
-		}
-
-		if bWillUsePathHashIndex {
-			PathHashIndexEndPosition := PathHashIndexOffset + PathHashIndexSize
-
-			if PathHashIndexEndPosition < 100 {
-
+			for i := 0; i < int(FilesNum); i++ {
+				pakFile.Files[i].Serialize(&memoryReader, pakInfo.Version)
 			}
-			reader.Seek(PathHashIndexOffset, 0)
-			PathHashIndexData := make([]byte, PathHashIndexSize)
-			reader.Read(PathHashIndexData)
-
-			PathHashIndexData, _ = misc.Decrypt(PathHashIndexData, aesKey)
-			var PathHashIndexReader FMemoryReader
-			PathHashIndexReader.data = PathHashIndexData
-
 		}
-
-		if !bReadFullDirectoryIndex {
-
-		} else {
-			reader.Seek(FullDirectoryIndexOffset, 0)
-			FullDirectoryIndexData := make([]byte, FullDirectoryIndexSize)
-			reader.Read(FullDirectoryIndexData)
-
-			FullDirectoryIndexData, err = misc.Decrypt(FullDirectoryIndexData, aesKey)
-			if err != nil {
-
-			}
-			var SecondaryIndexReader FMemoryReader
-			SecondaryIndexReader.data = FullDirectoryIndexData
-			pakFile.directoryIndex = readDirectoryIndex(&SecondaryIndexReader)
-		}
-
-		if Macro.ENABLE_PAKFILE_RUNTIME_PRUNING == 1 {
-			if bWillUseFullDirectoryIndex {
-				pakFile.bWillPruneDirectoryIndex = false
-			} else {
-				pakFile.prunedDirectoryIndex = readDirectoryIndex(reader)
-				pakFile.bWillPruneDirectoryIndex = true
-				pakFile.bSomePakNeedsPruning = true
-			}
-
-		}
-
+		loadSecondaryIndex(reader, *SecondaryIndexConfig, pakInfo, &pakFile)
 	} else {
 		//LoadLegacyIndex
 	}
 
 	return &pakFile, nil
+}
+
+type FSecondaryIndexConfig struct {
+	bReaderHasPathHashIndex bool
+	PathHashIndexOffset     int64
+	PathHashIndexSize       int64
+	PathHashIndexHash       FSHAHash
+
+	bReaderHasFullDirectoryIndex bool
+	FullDirectoryIndexOffset     int64
+	FullDirectoryIndexSize       int64
+	FullDirectoryIndexHash       FSHAHash
+}
+
+func readSecondaryIndexConfig(reader FArchive) *FSecondaryIndexConfig {
+	result := FSecondaryIndexConfig{}
+
+	result.bReaderHasPathHashIndex = readBool(reader)
+	if result.bReaderHasPathHashIndex {
+		result.PathHashIndexOffset = readNumerical[int64](reader, 8)
+		result.PathHashIndexSize = readNumerical[int64](reader, 8)
+		reader.Read(result.PathHashIndexHash.Hash[:])
+		result.bReaderHasPathHashIndex = result.PathHashIndexOffset >= 0
+	}
+
+	result.bReaderHasFullDirectoryIndex = readBool(reader)
+	if result.bReaderHasFullDirectoryIndex {
+		result.FullDirectoryIndexOffset = readNumerical[int64](reader, 8)
+		result.FullDirectoryIndexSize = readNumerical[int64](reader, 8)
+		reader.Read(result.FullDirectoryIndexHash.Hash[:])
+		result.bReaderHasFullDirectoryIndex = result.FullDirectoryIndexOffset >= 0
+	}
+	return &result
+}
+
+func loadSecondaryIndex(reader FArchive, config FSecondaryIndexConfig, pakInfo FPakInfo, pakFile *FPakFile) {
+
+	var bWillUseFullDirectoryIndex bool
+	var bWillUsePathHashIndex bool
+	var bReadFullDirectoryIndex bool
+
+	if config.bReaderHasPathHashIndex && config.bReaderHasFullDirectoryIndex {
+		bWillUseFullDirectoryIndex = true
+		bWillUsePathHashIndex = !bWillUseFullDirectoryIndex
+		bReadFullDirectoryIndex = true
+	} else if config.bReaderHasPathHashIndex {
+		bWillUsePathHashIndex = true
+		bWillUseFullDirectoryIndex = false
+		bReadFullDirectoryIndex = false
+	} else if config.bReaderHasFullDirectoryIndex {
+		bWillUsePathHashIndex = false
+		bWillUseFullDirectoryIndex = true
+		bReadFullDirectoryIndex = true
+	}
+
+	if bWillUsePathHashIndex {
+		PathHashIndexEndPosition := config.PathHashIndexOffset + config.PathHashIndexSize
+
+		if PathHashIndexEndPosition < 100 {
+
+		}
+		reader.Seek(config.PathHashIndexOffset, 0)
+		PathHashIndexData := make([]byte, config.PathHashIndexSize)
+		reader.Read(PathHashIndexData)
+
+		PathHashIndexData, _ = decrypt(PathHashIndexData)
+		var PathHashIndexReader FMemoryReader
+		PathHashIndexReader.data = PathHashIndexData
+
+	}
+
+	if !bReadFullDirectoryIndex {
+
+	} else {
+		reader.Seek(config.FullDirectoryIndexOffset, 0)
+		FullDirectoryIndexData := make([]byte, config.FullDirectoryIndexSize)
+		reader.Read(FullDirectoryIndexData)
+
+		FullDirectoryIndexData, err := decrypt(FullDirectoryIndexData)
+		if err != nil {
+
+		}
+		var SecondaryIndexReader FMemoryReader
+		SecondaryIndexReader.data = FullDirectoryIndexData
+		pakFile.directoryIndex = readDirectoryIndex(&SecondaryIndexReader)
+	}
+
+	if Macro.ENABLE_PAKFILE_RUNTIME_PRUNING == 1 {
+		if bWillUseFullDirectoryIndex {
+			pakFile.bWillPruneDirectoryIndex = false
+		} else {
+			pakFile.prunedDirectoryIndex = readDirectoryIndex(reader)
+			pakFile.bWillPruneDirectoryIndex = true
+			pakFile.bSomePakNeedsPruning = true
+		}
+
+	}
+
 }
 
 func loadPakInfo(reader FArchive) *FPakInfo {
@@ -550,7 +620,12 @@ func Load(filepath string) {
 	pakInfo := loadPakInfo(fileReader)
 	var pakFile *FPakFile
 	if !pakInfo.EncryptionKeyGuid.IsValid() {
-		pakFile = LoadIndex(fileReader, *pakInfo)
+		pakFile, err = LoadIndex(fileReader, *pakInfo)
+		if err != nil {
+
+		}
+		fmt.Print(pakFile.NumEntries)
+
 	}
 
 }

@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Crash Viewer</title>
+
+  <!-- xterm.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial; margin: 0; height: 100vh; display: flex; }
+    .sidebar { width: 280px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow:auto; }
+    .content { flex: 1; display: flex; flex-direction: column; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom:6px; background:#f7f7f7; }
+    .list-item:hover { background:#eee; }
+    .list-item.active { background:#dfefff; }
+    .controls { padding: 8px 12px; border-bottom: 1px solid #eee; }
+    #term { flex: 1; }
+    .small { font-size: 13px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="controls">
+      <div class="small">点击左侧项向后端请求数据并在右侧展示</div>
+    </div>
+
+    <!-- 简单静态列表：把 data-id 换成你后端需要的参数 -->
+    <ul id="items" class="list">
+      <li class="list-item" data-id="crash-001">Crash #001</li>
+      <li class="list-item" data-id="crash-002">Crash #002</li>
+      <li class="list-item" data-id="crash-003">Crash #003</li>
+      <li class="list-item" data-id="crash-004">Crash #004</li>
+    </ul>
+  </div>
+
+  <div class="content">
+    <div class="controls">
+      <button id="clearBtn">清空</button>
+      <span id="status" class="small" style="margin-left:12px;"></span>
+    </div>
+    <div id="term"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
+  <script>
+    // 初始化 xterm
+    const term = new window.Terminal({
+      cols: 120,
+      rows: 30,
+      convertEol: true,
+      rendererType: 'canvas',
+      fontFamily: 'monospace',
+      fontSize: 12,
+    });
+    term.open(document.getElementById('term'));
+
+    const itemsEl = document.getElementById('items');
+    const statusEl = document.getElementById('status');
+    const clearBtn = document.getElementById('clearBtn');
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    // 点击处理：发送 axios 请求到后端
+    itemsEl.addEventListener('click', (ev) => {
+      const li = ev.target.closest('.list-item');
+      if (!li) return;
+      // 高亮
+      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
+      li.classList.add('active');
+
+      const id = li.getAttribute('data-id');
+      if (!id) return;
+
+      setStatus('请求中: ' + id);
+      term.clear();
+      term.writeln('请求参数: ' + id);
+
+      // 根据你后端的实际路由修改 URL 和请求方法/参数
+      axios.post('/api/crash', { id: id })
+        .then(resp => {
+          setStatus('已返回');
+          // 假设后端返回 JSON，漂亮打印到 xterm
+          try {
+            const json = resp.data;
+            const pretty = JSON.stringify(json, null, 2);
+            pretty.split('\n').forEach(line => term.writeln(line));
+          } catch (e) {
+            term.writeln('解析返回数据失败: ' + e.message);
+            term.writeln(String(resp.data));
+          }
+        })
+        .catch(err => {
+          setStatus('请求失败');
+          if (err.response && err.response.data) {
+            term.writeln('错误响应:');
+            term.writeln(JSON.stringify(err.response.data, null, 2));
+          } else {
+            term.writeln('网络或服务器错误: ' + (err.message || err));
+          }
+        });
+    });
+
+    clearBtn.addEventListener('click', () => {
+      term.clear();
+      setStatus('');
+      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
+    });
+
+    // 可选：动态从后端加载列表项示例（如需要，取消注释并实现 /api/crash/list）
+    /*
+    axios.get('/api/crash/list').then(r => {
+      const list = r.data; // 期望 [{id: "...", title: "..."}]
+      itemsEl.innerHTML = '';
+      list.forEach(it => {
+        const li = document.createElement('li');
+        li.className = 'list-item';
+        li.dataset.id = it.id;
+        li.textContent = it.title || it.id;
+        itemsEl.appendChild(li);
+      });
+    });
+    */
+  </script>
+</body>
+</html>
+```// filepath: d:\GitHub\UEHelper\Server\templates\crash.html
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Crash Viewer</title>
+
+  <!-- xterm.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial; margin: 0; height: 100vh; display: flex; }
+    .sidebar { width: 280px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow:auto; }
+    .content { flex: 1; display: flex; flex-direction: column; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom:6px; background:#f7f7f7; }
+    .list-item:hover { background:#eee; }
+    .list-item.active { background:#dfefff; }
+    .controls { padding: 8px 12px; border-bottom: 1px solid #eee; }
+    #term { flex: 1; }
+    .small { font-size: 13px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="controls">
+      <div class="small">点击左侧项向后端请求数据并在右侧展示</div>
+    </div>
+
+    <!-- 简单静态列表：把 data-id 换成你后端需要的参数 -->
+    <ul id="items" class="list">
+      <li class="list-item" data-id="crash-001">Crash #001</li>
+      <li class="list-item" data-id="crash-002">Crash #002</li>
+      <li class="list-item" data-id="crash-003">Crash #003</li>
+      <li class="list-item" data-id="crash-004">Crash #004</li>
+    </ul>
+  </div>
+
+  <div class="content">
+    <div class="controls">
+      <button id="clearBtn">清空</button>
+      <span id="status" class="small" style="margin-left:12px;"></span>
+    </div>
+    <div id="term"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
+  <script>
+    // 初始化 xterm
+    const term = new window.Terminal({
+      cols: 120,
+      rows: 30,
+      convertEol: true,
+      rendererType: 'canvas',
+      fontFamily: 'monospace',
+      fontSize: 12,
+    });
+    term.open(document.getElementById('term'));
+
+    const itemsEl = document.getElementById('items');
+    const statusEl = document.getElementById('status');
+    const clearBtn = document.getElementById('clearBtn');
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    // 点击处理：发送 axios 请求到后端
+    itemsEl.addEventListener('click', (ev) => {
+      const li = ev.target.closest('.list-item');
+      if (!li) return;
+      // 高亮
+      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
+      li.classList.add('active');
+
+      const id = li.getAttribute('data-id');
+      if (!id) return;
+
+      setStatus('请求中: ' + id);
+      term.clear();
+      term.writeln('请求参数: ' + id);
+
+      // 根据你后端的实际路由修改 URL 和请求方法/参数
+      axios.post('/api/crash', { id: id })
+        .then(resp => {
+          setStatus('已返回');
+          // 假设后端返回 JSON，漂亮打印到 xterm
+          try {
+            const json = resp.data;
+            const pretty = JSON.stringify(json, null, 2);
+            pretty.split('\n').forEach(line => term.writeln(line));
+          } catch (e) {
+            term.writeln('解析返回数据失败: ' + e.message);
+            term.writeln(String(resp.data));
+          }
+        })
+        .catch(err => {
+          setStatus('请求失败');
+          if (err.response && err.response.data) {
+            term.writeln('错误响应:');
+            term.writeln(JSON.stringify(err.response.data, null, 2));
+          } else {
+            term.writeln('网络或服务器错误: ' + (err.message || err));
+          }
+        });
+    });
+
+    clearBtn.addEventListener('click', () => {
+      term.clear();
+      setStatus('');
+      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
+    });
+
+    // 可选：动态从后端加载列表项示例（如需要，取消注释并实现 /api/crash/list）
+    /*
+    axios.get('/api/crash/list').then(r => {
+      const list = r.data; // 期望 [{id: "...", title: "..."}]
+      itemsEl.innerHTML = '';
+      list.forEach(it => {
+        const li = document.createElement('li');
+        li.className = 'list-item';
+        li.dataset.id = it.id;
+        li.textContent = it.title || it.id;
+        itemsEl.appendChild(li);
+      });
+    });
+    */
+  </script>
+</body>
+</html>
