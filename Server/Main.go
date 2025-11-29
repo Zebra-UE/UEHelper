@@ -13,14 +13,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func main() {
+func main1() {
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
 	//
 	//fmt.Printf(os.Getwd())
 	r.GET("/api/crash/list", func(c *gin.Context) {
-		absPath := "C:/Users/36038/Downloads"
-		c.JSON(crash.List(absPath))
+		//absPath := "C:/Users/36038/Downloads"
+		//c.JSON(crash.List(absPath))
 	})
 	r.GET("api/crash/:name", func(c *gin.Context) {
 		name := c.Param("name")
@@ -56,33 +56,35 @@ func main2() {
 	pakview.Load("E:/Game/grgame/custom/release/S1Game/633821/Win64/S1Game/Content/Paks/pakchunk0-Windows.pak")
 }
 
-func main3() {
+func main() {
 	baseDir := "E:/Game/grgame/custom"
 	branch := "release"
-	changelist := "644908"
+	changelist := "666636"
 	profilePath := [2]string{
 		filepath.Join(baseDir, branch, "S1Game", changelist, "Win64", "S1Game", "Saved", "Profiling"),
 		filepath.Join(baseDir, branch, "S1Game", changelist, "Win64", "xxx", "S1Game", "Saved", "Profiling"),
 	}
 	entries, err := os.ReadDir(profilePath[0])
 	if err != nil {
-		return
+
 	}
 	var scanPath string
-	for _, entry := range entries {
-		if entry.IsDir() && entry.Name() == "MemReports" {
-			continue
+	if len(entries) > 0 {
+		for _, entry := range entries {
+			if entry.IsDir() && entry.Name() == "MemReports" {
+				continue
+			}
+			arr := strings.Split(entry.Name(), "-")
+			if len(arr) < 3 {
+				continue
+			}
+			if arr[1] == "Windows" {
+				scanPath = filepath.Join(profilePath[0], entry.Name())
+			}
 		}
-		arr := strings.Split(entry.Name(), "-")
-		if len(arr) < 3 {
-			continue
+		if len(scanPath) == 0 {
+			return
 		}
-		if arr[1] == "Windows" {
-			scanPath = filepath.Join(profilePath[0], entry.Name())
-		}
-	}
-	if len(scanPath) == 0 {
-		return
 	}
 	type FindFileResultItem struct {
 		pid   string
@@ -90,6 +92,7 @@ func main3() {
 		path  string
 	}
 	findResult := make(map[string][]FindFileResultItem, 0)
+	scanPath = `C:\Users\36038\Downloads\NordLand-Windows-0\`
 	entries, _ = os.ReadDir(scanPath)
 	for _, entry := range entries {
 		if entry.IsDir() {
