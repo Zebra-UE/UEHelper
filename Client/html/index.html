@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Grid Layout</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { 
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial; 
+      margin: 0; 
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .grid-container {
+      display: grid;
+      grid-template-columns: repeat(4, 500px);
+      gap: 20px;
+      justify-content: center;
+    }
+    .grid-item {
+      width: 500px;
+      height: 300px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: #333;
+      cursor: pointer;
+    }
+    .grid-item:hover {
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+      transform: translateY(-2px);
+      transition: all 0.2s;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-container">
+    <div class="grid-item" onclick="window.location.href='crash.html'">方格 1 - Crash 分析</div>
+    <div class="grid-item">方格 2</div>
+    <div class="grid-item">方格 3</div>
+    <div class="grid-item">方格 4</div>
+    <div class="grid-item">方格 5</div>
+    <div class="grid-item">方格 6</div>
+    <div class="grid-item">方格 7</div>
+    <div class="grid-item">方格 8</div>
+    <div class="grid-item">方格 9</div>
+    <div class="grid-item">方格 10</div>
+    <div class="grid-item">方格 11</div>
+    <div class="grid-item">方格 12</div>
+    <div class="grid-item">方格 13</div>
+    <div class="grid-item">方格 14</div>
+    <div class="grid-item">方格 15</div>
+    <div class="grid-item">方格 16</div>
+  </div>
+</body>
+</html>
