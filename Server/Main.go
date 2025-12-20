@@ -2,6 +2,7 @@ package main
 
 import (
 	"UEHelper/tools/crash"
+	"UEHelper/tools/loganalysis"
 	"UEHelper/tools/objlist"
 	"UEHelper/tools/pakview"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func main1() {
+func main() {
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
 	//
@@ -44,6 +45,31 @@ func main1() {
 		ctx.File("./templates/crash.html")
 	})
 
+	r.GET("/loganalysis", func(ctx *gin.Context) {
+		ctx.File("./templates/loganalysis.html")
+	})
+
+	r.POST("/api/loganalysis/", func(ctx *gin.Context) {
+		var req struct {
+			Path string `json:"path"`
+		}
+
+		if err := ctx.BindJSON(&req); err != nil {
+			ctx.JSON(400, gin.H{"error": "Invalid request: " + err.Error()})
+			return
+		}
+
+		if req.Path == "" {
+			ctx.JSON(400, gin.H{"error": "Path is required"})
+			return
+		}
+
+		// 调用日志分析函数
+		result := loganalysis.Run(req.Path)
+
+		ctx.JSON(200, result)
+	})
+
 	r.GET("/", func(ctx *gin.Context) {
 		ctx.File("./templates/index.html")
 	})
@@ -56,10 +82,10 @@ func main2() {
 	pakview.Load("E:/Game/grgame/custom/release/S1Game/633821/Win64/S1Game/Content/Paks/pakchunk0-Windows.pak")
 }
 
-func main() {
+func main1() {
 	baseDir := "E:/Game/grgame/custom"
 	branch := "release"
-	changelist := "666636"
+	changelist := "678906"
 	profilePath := [2]string{
 		filepath.Join(baseDir, branch, "S1Game", changelist, "Win64", "S1Game", "Saved", "Profiling"),
 		filepath.Join(baseDir, branch, "S1Game", changelist, "Win64", "xxx", "S1Game", "Saved", "Profiling"),
@@ -92,7 +118,7 @@ func main() {
 		path  string
 	}
 	findResult := make(map[string][]FindFileResultItem, 0)
-	scanPath = `C:\Users\36038\Downloads\NordLand-Windows-0\`
+
 	entries, _ = os.ReadDir(scanPath)
 	for _, entry := range entries {
 		if entry.IsDir() {
