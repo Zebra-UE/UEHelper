@@ -1,257 +1,239 @@
-<!doctype html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Crash Viewer</title>
-
-  <!-- xterm.js -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial; margin: 0; height: 100vh; display: flex; }
-    .sidebar { width: 280px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow:auto; }
-    .content { flex: 1; display: flex; flex-direction: column; }
-    .list { list-style: none; padding: 0; margin: 0; }
-    .list-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom:6px; background:#f7f7f7; }
-    .list-item:hover { background:#eee; }
-    .list-item.active { background:#dfefff; }
-    .controls { padding: 8px 12px; border-bottom: 1px solid #eee; }
-    #term { flex: 1; }
-    .small { font-size: 13px; color: #666; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crash List</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .crash-item {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .crash-info {
+            flex-grow: 1;
+        }
+        .crash-name {
+            font-weight: bold;
+        }
+        .crash-actions button {
+            margin-left: 10px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgb(0,0,0);
+            background-color: rgba(0,0,0,0.4);
+            padding-top: 60px;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-  <div class="sidebar">
-    <div class="controls">
-      <div class="small">点击左侧项向后端请求数据并在右侧展示</div>
+
+    <h1>Crash Reports</h1>
+
+    <div id="crash-list">
+        <!-- Content will be loaded dynamically -->
     </div>
 
-    <!-- 简单静态列表：把 data-id 换成你后端需要的参数 -->
-    <ul id="items" class="list">
-      <li class="list-item" data-id="crash-001">Crash #001</li>
-      <li class="list-item" data-id="crash-002">Crash #002</li>
-      <li class="list-item" data-id="crash-003">Crash #003</li>
-      <li class="list-item" data-id="crash-004">Crash #004</li>
-    </ul>
-  </div>
-
-  <div class="content">
-    <div class="controls">
-      <button id="clearBtn">清空</button>
-      <span id="status" class="small" style="margin-left:12px;"></span>
+    <!-- The Modal -->
+    <div id="analysisModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Analysis Result</h2>
+            <pre id="analysisResult"></pre>
+            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+                <h3>Remark</h3>
+                <textarea id="remarkInput" rows="3" style="width: 100%; margin-bottom: 10px;" placeholder="Enter remark..."></textarea>
+                <button onclick="submitRemark()">Submit Remark</button>
+            </div>
+        </div>
     </div>
-    <div id="term"></div>
-  </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
-  <script>
-    // 初始化 xterm
-    const term = new window.Terminal({
-      cols: 120,
-      rows: 30,
-      convertEol: true,
-      rendererType: 'canvas',
-      fontFamily: 'monospace',
-      fontSize: 12,
-    });
-    term.open(document.getElementById('term'));
+    <script>
+        var modal = document.getElementById('analysisModal');
+        var currentCrashID = null;
 
-    const itemsEl = document.getElementById('items');
-    const statusEl = document.getElementById('status');
-    const clearBtn = document.getElementById('clearBtn');
-
-    function setStatus(text) { statusEl.textContent = text; }
-
-    // 点击处理：发送 axios 请求到后端
-    itemsEl.addEventListener('click', (ev) => {
-      const li = ev.target.closest('.list-item');
-      if (!li) return;
-      // 高亮
-      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
-      li.classList.add('active');
-
-      const id = li.getAttribute('data-id');
-      if (!id) return;
-
-      setStatus('请求中: ' + id);
-      term.clear();
-      term.writeln('请求参数: ' + id);
-
-      // 根据你后端的实际路由修改 URL 和请求方法/参数
-      axios.post('/api/crash', { id: id })
-        .then(resp => {
-          setStatus('已返回');
-          // 假设后端返回 JSON，漂亮打印到 xterm
-          try {
-            const json = resp.data;
-            const pretty = JSON.stringify(json, null, 2);
-            pretty.split('\n').forEach(line => term.writeln(line));
-          } catch (e) {
-            term.writeln('解析返回数据失败: ' + e.message);
-            term.writeln(String(resp.data));
-          }
-        })
-        .catch(err => {
-          setStatus('请求失败');
-          if (err.response && err.response.data) {
-            term.writeln('错误响应:');
-            term.writeln(JSON.stringify(err.response.data, null, 2));
-          } else {
-            term.writeln('网络或服务器错误: ' + (err.message || err));
-          }
+        document.addEventListener("DOMContentLoaded", function() {
+            fetchCrashList();
         });
-    });
 
-    clearBtn.addEventListener('click', () => {
-      term.clear();
-      setStatus('');
-      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
-    });
+        function fetchCrashList() {
+            fetch('/api/crash/list')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    renderCrashList(data);
+                })
+                .catch(error => {
+                    console.warn('API not ready, using demo data:', error);
+                    // document.getElementById('crash-list').textContent = 'Error loading crash list.';
+                    const demoData = [
+                        { name: "Demo Crash 1", logPath: "/logs/crash1.log", crashID: "demo_hash_1", remark: "This is a demo crash" },
+                        { name: "Demo Crash 2", logPath: "/logs/crash2.log", crashID: "demo_hash_2", remark: "Another demo crash" }
+                    ];
+                    renderCrashList(demoData);
+                });
+        }
 
-    // 可选：动态从后端加载列表项示例（如需要，取消注释并实现 /api/crash/list）
-    /*
-    axios.get('/api/crash/list').then(r => {
-      const list = r.data; // 期望 [{id: "...", title: "..."}]
-      itemsEl.innerHTML = '';
-      list.forEach(it => {
-        const li = document.createElement('li');
-        li.className = 'list-item';
-        li.dataset.id = it.id;
-        li.textContent = it.title || it.id;
-        itemsEl.appendChild(li);
-      });
-    });
-    */
-  </script>
-</body>
-</html>
-```// filepath: d:\GitHub\UEHelper\Server\templates\crash.html
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Crash Viewer</title>
+        function renderCrashList(crashes) {
+            const listContainer = document.getElementById('crash-list');
+            listContainer.innerHTML = ''; // Clear current content
 
-  <!-- xterm.js -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial; margin: 0; height: 100vh; display: flex; }
-    .sidebar { width: 280px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow:auto; }
-    .content { flex: 1; display: flex; flex-direction: column; }
-    .list { list-style: none; padding: 0; margin: 0; }
-    .list-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom:6px; background:#f7f7f7; }
-    .list-item:hover { background:#eee; }
-    .list-item.active { background:#dfefff; }
-    .controls { padding: 8px 12px; border-bottom: 1px solid #eee; }
-    #term { flex: 1; }
-    .small { font-size: 13px; color: #666; }
-  </style>
-</head>
-<body>
-  <div class="sidebar">
-    <div class="controls">
-      <div class="small">点击左侧项向后端请求数据并在右侧展示</div>
-    </div>
+            crashes.forEach(crash => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'crash-item';
 
-    <!-- 简单静态列表：把 data-id 换成你后端需要的参数 -->
-    <ul id="items" class="list">
-      <li class="list-item" data-id="crash-001">Crash #001</li>
-      <li class="list-item" data-id="crash-002">Crash #002</li>
-      <li class="list-item" data-id="crash-003">Crash #003</li>
-      <li class="list-item" data-id="crash-004">Crash #004</li>
-    </ul>
-  </div>
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'crash-info';
 
-  <div class="content">
-    <div class="controls">
-      <button id="clearBtn">清空</button>
-      <span id="status" class="small" style="margin-left:12px;"></span>
-    </div>
-    <div id="term"></div>
-  </div>
+                // Display Name/Path
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'crash-name';
+                nameDiv.textContent = crash.name || crash.logPath || 'Unknown Crash';
+                infoDiv.appendChild(nameDiv);
 
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
-  <script>
-    // 初始化 xterm
-    const term = new window.Terminal({
-      cols: 120,
-      rows: 30,
-      convertEol: true,
-      rendererType: 'canvas',
-      fontFamily: 'monospace',
-      fontSize: 12,
-    });
-    term.open(document.getElementById('term'));
+                // Display Remark
+                const remarkDiv = document.createElement('div');
+                remarkDiv.textContent = crash.remark || '';
+                infoDiv.appendChild(remarkDiv);
 
-    const itemsEl = document.getElementById('items');
-    const statusEl = document.getElementById('status');
-    const clearBtn = document.getElementById('clearBtn');
+                itemDiv.appendChild(infoDiv);
 
-    function setStatus(text) { statusEl.textContent = text; }
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'crash-actions';
 
-    // 点击处理：发送 axios 请求到后端
-    itemsEl.addEventListener('click', (ev) => {
-      const li = ev.target.closest('.list-item');
-      if (!li) return;
-      // 高亮
-      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
-      li.classList.add('active');
+                // Analyze Button
+                const analyzeBtn = document.createElement('button');
+                analyzeBtn.textContent = '分析';
+                analyzeBtn.onclick = function() {
+                    analyze(crash.crashID);
+                };
+                actionsDiv.appendChild(analyzeBtn);
 
-      const id = li.getAttribute('data-id');
-      if (!id) return;
+                // Log Button (or second button)
+                const logBtn = document.createElement('button');
+                logBtn.textContent = '日志'; // "Log"
+                logBtn.onclick = function() {
+                    // Assuming similar behavior to previous version, but using LogPath from JSON
+                    openLog(crash.logPath);
+                };
+                actionsDiv.appendChild(logBtn);
 
-      setStatus('请求中: ' + id);
-      term.clear();
-      term.writeln('请求参数: ' + id);
+                itemDiv.appendChild(actionsDiv);
+                listContainer.appendChild(itemDiv);
+            });
+        }
 
-      // 根据你后端的实际路由修改 URL 和请求方法/参数
-      axios.post('/api/crash', { id: id })
-        .then(resp => {
-          setStatus('已返回');
-          // 假设后端返回 JSON，漂亮打印到 xterm
-          try {
-            const json = resp.data;
-            const pretty = JSON.stringify(json, null, 2);
-            pretty.split('\n').forEach(line => term.writeln(line));
-          } catch (e) {
-            term.writeln('解析返回数据失败: ' + e.message);
-            term.writeln(String(resp.data));
-          }
-        })
-        .catch(err => {
-          setStatus('请求失败');
-          if (err.response && err.response.data) {
-            term.writeln('错误响应:');
-            term.writeln(JSON.stringify(err.response.data, null, 2));
-          } else {
-            term.writeln('网络或服务器错误: ' + (err.message || err));
-          }
-        });
-    });
+        function analyze(id) {
+            currentCrashID = id; // Store the current crash ID
+            document.getElementById('analysisResult').textContent = "Analyzing...";
+            document.getElementById('remarkInput').value = ""; // Clear previous remark
+            modal.style.display = "block";
+            
+            fetch('/api/crash/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ CrashID: id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Return structure has a 'context' field
+                if (data && data.context) {
+                    document.getElementById('analysisResult').textContent = data.context;
+                } else {
+                    document.getElementById('analysisResult').textContent = JSON.stringify(data, null, 2);
+                }
+            })
+            .catch(error => {
+                console.error('Error analyzing crash:', error);
+                document.getElementById('analysisResult').textContent = "Analysis failed: " + error;
+            });
+        }
 
-    clearBtn.addEventListener('click', () => {
-      term.clear();
-      setStatus('');
-      document.querySelectorAll('.list-item').forEach(n => n.classList.remove('active'));
-    });
+        function openLog(logPath) {
+            
+        }
 
-    // 可选：动态从后端加载列表项示例（如需要，取消注释并实现 /api/crash/list）
-    /*
-    axios.get('/api/crash/list').then(r => {
-      const list = r.data; // 期望 [{id: "...", title: "..."}]
-      itemsEl.innerHTML = '';
-      list.forEach(it => {
-        const li = document.createElement('li');
-        li.className = 'list-item';
-        li.dataset.id = it.id;
-        li.textContent = it.title || it.id;
-        itemsEl.appendChild(li);
-      });
-    });
-    */
-  </script>
+        function submitRemark() {
+            const remarkText = document.getElementById('remarkInput').value;
+            if (!currentCrashID) {
+                alert("No crash selected.");
+                return;
+            }
+
+            fetch('/api/crash/remark', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ CrashID: currentCrashID, Remark: remarkText })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert("Remark submitted successfully!");
+                // Optionally update the UI or clear the textarea
+                // document.getElementById('remarkInput').value = "";
+            })
+            .catch(error => {
+                console.error('Error submitting remark:', error);
+                alert("Failed to submit remark.");
+            });
+        }
+
+        function closeModal() {
+            modal.style.display = "none";
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+    </script>
+
 </body>
 </html>

@@ -6,6 +6,7 @@ import (
 	"UEHelper/tools/objlist"
 	"UEHelper/tools/pakview"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const baseDir = "E:/Game/grgame/custom"
 
 func main() {
 	r := gin.Default()
@@ -47,6 +50,27 @@ func main() {
 
 	r.GET("/loganalysis", func(ctx *gin.Context) {
 		ctx.File("./templates/loganalysis.html")
+	})
+	r.GET("/objlist", func(ctx *gin.Context) {
+		ctx.File("./templates/objlist.html")
+	})
+	r.GET("/api/changelists", func(ctx *gin.Context) {
+		branch := ctx.Query("branch")
+
+		path.Join(baseDir, branch)
+		entries, err := os.ReadDir(path.Join(baseDir, branch))
+		if err != nil {
+			ctx.JSON(500, gin.H{"error": "Failed to read directory: " + err.Error()})
+			return
+		}
+		var changelists []string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				changelists = append(changelists, entry.Name())
+			}
+		}
+		ctx.JSON(200, changelists)
+
 	})
 
 	r.POST("/api/loganalysis/", func(ctx *gin.Context) {
@@ -85,7 +109,7 @@ func main2() {
 func main1() {
 	baseDir := "E:/Game/grgame/custom"
 	branch := "release"
-	changelist := "678906"
+	changelist := "752771"
 	profilePath := [2]string{
 		filepath.Join(baseDir, branch, "S1Game", changelist, "Win64", "S1Game", "Saved", "Profiling"),
 		filepath.Join(baseDir, branch, "S1Game", changelist, "Win64", "xxx", "S1Game", "Saved", "Profiling"),
