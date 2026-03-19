@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Launch</title>
+	<style>
+		* { box-sizing: border-box; }
+		body {
+			margin: 0;
+			padding: 24px;
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+			background: #f6f7fb;
+			color: #222;
+		}
+
+		.container {
+			max-width: 1400px;
+			margin: 0 auto;
+		}
+
+		.card {
+			background: #fff;
+			border: 1px solid #e6e8ef;
+			border-radius: 12px;
+			padding: 16px;
+			box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+		}
+
+		.toolbar {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 12px;
+			flex-wrap: wrap;
+		}
+
+		.toolbar-left {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			flex-wrap: wrap;
+		}
+
+		label {
+			font-size: 13px;
+			color: #344054;
+			font-weight: 600;
+		}
+
+		select, input[type="text"] {
+			height: 34px;
+			padding: 6px 10px;
+			border: 1px solid #d0d5dd;
+			border-radius: 8px;
+			outline: none;
+			background: #fff;
+		}
+
+		input[type="text"] {
+			width: 120px;
+		}
+
+		input[type="text"].invalid {
+			border-color: #f04438;
+			background: #fff5f4;
+		}
+
+		.status {
+			font-size: 13px;
+			color: #475467;
+			min-height: 18px;
+		}
+
+		.status.error {
+			color: #b42318;
+		}
+
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			overflow: hidden;
+			border-radius: 10px;
+		}
+
+		thead th {
+			text-align: left;
+			font-size: 12px;
+			letter-spacing: .02em;
+			text-transform: uppercase;
+			color: #667085;
+			background: #f9fafb;
+			border-bottom: 1px solid #eaecf0;
+			padding: 10px 12px;
+		}
+
+		tbody td {
+			border-bottom: 1px solid #eaecf0;
+			padding: 10px 12px;
+			vertical-align: top;
+		}
+
+		tbody tr:hover td {
+			background: #fcfcfd;
+		}
+
+		.options {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 10px 14px;
+			align-items: center;
+		}
+
+		.checkbox {
+			display: inline-flex;
+			gap: 6px;
+			align-items: center;
+			font-size: 13px;
+			color: #344054;
+			user-select: none;
+		}
+
+		.checkbox input {
+			width: 16px;
+			height: 16px;
+		}
+
+		.btn {
+			height: 34px;
+			padding: 0 12px;
+			border-radius: 8px;
+			border: 1px solid #d0d5dd;
+			background: #fff;
+			cursor: pointer;
+			font-weight: 600;
+			color: #344054;
+		}
+
+		.btn:disabled {
+			cursor: not-allowed;
+			opacity: 0.6;
+		}
+
+		.btn.primary {
+			background: #2563eb;
+			border-color: #2563eb;
+			color: #fff;
+		}
+
+		.btn.primary:hover {
+			filter: brightness(0.98);
+		}
+
+		.hint {
+			font-size: 12px;
+			color: #667085;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="container">
+		<div class="card">
+			<div class="toolbar">
+				<div class="toolbar-left">
+					<label for="branch-select">分支</label>
+					<select id="branch-select" aria-label="选择分支">
+						<option value="Trunk">Trunk</option>
+						<option value="Release">Release</option>
+					</select>
+					<button class="btn" id="refresh-btn" type="button">刷新列表</button>
+					<div class="hint">打开页面会自动拉取 /launch/api/list</div>
+				</div>
+				<div class="status" id="status"></div>
+			</div>
+
+			<table>
+				<thead>
+					<tr>
+						<th style="width: 180px;">ID</th>
+						<th>选项</th>
+						<th style="width: 180px;">配置</th>
+						<th style="width: 140px;">启动</th>
+					</tr>
+				</thead>
+				<tbody id="launch-table-body">
+					<!-- populated by JS -->
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<script>
+		const API_LIST = '/launch/api/list';
+		const API_RUN = '/launch/api/run';
+
+		function setStatus(message, isError = false) {
+			const el = document.getElementById('status');
+			el.textContent = message || '';
+			el.className = isError ? 'status error' : 'status';
+		}
+
+		function getBranch() {
+			return document.getElementById('branch-select').value;
+		}
+
+		function normalizeListResponse(raw) {
+			if (raw == null) return [];
+			if (Array.isArray(raw)) return raw;
+			if (Array.isArray(raw.items)) return raw.items;
+			if (Array.isArray(raw.Items)) return raw.Items;
+			if (Array.isArray(raw.data)) return raw.data;
+			if (Array.isArray(raw.Data)) return raw.Data;
+			return [];
+		}
+
+		function pickId(item) {
+			return (
+				item?.id ??
+				item?.Id ??
+				item?.code ??
+				item?.Code ??
+				item?.key ??
+				item?.Key ??
+				item?.cl ??
+				item?.CL ??
+				item?.ChangeList ??
+				item?.changelist ??
+				''
+			);
+		}
+
+		function pickConfig(item) {
+			return (
+				item?.config ??
+				item?.Config ??
+				item?.target ??
+				item?.Target ??
+				item?.build ??
+				item?.Build ??
+				'Dev'
+			);
+		}
+
+		function pickOptions(item) {
+			const options = item?.options ?? item?.Options ?? {};
+			return {
+				recordPerf: Boolean(options.recordPerf ?? options.RecordPerf ?? item?.recordPerf ?? item?.RecordPerf ?? false),
+				enableLog: Boolean(options.enableLog ?? options.EnableLog ?? item?.enableLog ?? item?.EnableLog ?? false),
+				replace: Boolean(options.replace ?? options.Replace ?? item?.replace ?? item?.Replace ?? false),
+			};
+		}
+
+		function isValidId(value) {
+			return /^\d{6,7}$/.test(String(value || '').trim());
+		}
+
+		function createRow(item) {
+			const idValue = String(pickId(item) ?? '').trim();
+			const configValue = String(pickConfig(item) ?? 'Dev');
+			const opts = pickOptions(item);
+
+			const tr = document.createElement('tr');
+
+			const tdId = document.createElement('td');
+			const idInput = document.createElement('input');
+			idInput.type = 'text';
+			idInput.value = idValue;
+			idInput.placeholder = '6-7位数字';
+			idInput.inputMode = 'numeric';
+			idInput.autocomplete = 'off';
+			idInput.spellcheck = false;
+			idInput.addEventListener('input', () => {
+				idInput.classList.toggle('invalid', !isValidId(idInput.value));
+			});
+			idInput.classList.toggle('invalid', idValue.length > 0 && !isValidId(idValue));
+			tdId.appendChild(idInput);
+
+			const tdOptions = document.createElement('td');
+			const optionsDiv = document.createElement('div');
+			optionsDiv.className = 'options';
+
+			const recordPerf = document.createElement('label');
+			recordPerf.className = 'checkbox';
+			recordPerf.innerHTML = `<input type="checkbox" class="opt-record-perf"> 是否录制性能`;
+			recordPerf.querySelector('input').checked = opts.recordPerf;
+
+			const enableLog = document.createElement('label');
+			enableLog.className = 'checkbox';
+			enableLog.innerHTML = `<input type="checkbox" class="opt-enable-log"> 是否开启Log`;
+			enableLog.querySelector('input').checked = opts.enableLog;
+
+			const replace = document.createElement('label');
+			replace.className = 'checkbox';
+			replace.innerHTML = `<input type="checkbox" class="opt-replace"> 是否替换`;
+			replace.querySelector('input').checked = opts.replace;
+
+			optionsDiv.appendChild(recordPerf);
+			optionsDiv.appendChild(enableLog);
+			optionsDiv.appendChild(replace);
+			tdOptions.appendChild(optionsDiv);
+
+			const tdConfig = document.createElement('td');
+			const configSelect = document.createElement('select');
+			configSelect.className = 'config-select';
+			configSelect.innerHTML = `
+				<option value="Dev">Dev</option>
+				<option value="Test">Test</option>
+				<option value="Shipping">Shipping</option>
+			`;
+			if ([...configSelect.options].some(o => o.value === configValue)) {
+				configSelect.value = configValue;
+			} else {
+				configSelect.value = 'Dev';
+			}
+			tdConfig.appendChild(configSelect);
+
+			const tdRun = document.createElement('td');
+			const runBtn = document.createElement('button');
+			runBtn.type = 'button';
+			runBtn.className = 'btn primary run-btn';
+			runBtn.textContent = '启动';
+			runBtn.addEventListener('click', async () => {
+				await runOne(tr);
+			});
+			tdRun.appendChild(runBtn);
+
+			tr.appendChild(tdId);
+			tr.appendChild(tdOptions);
+			tr.appendChild(tdConfig);
+			tr.appendChild(tdRun);
+			return tr;
+		}
+
+		function getRowPayload(tr) {
+			const idInput = tr.querySelector('input[type="text"]');
+			const runBtn = tr.querySelector('button.run-btn');
+			const configSelect = tr.querySelector('select.config-select');
+			const recordPerf = tr.querySelector('input.opt-record-perf');
+			const enableLog = tr.querySelector('input.opt-enable-log');
+			const replace = tr.querySelector('input.opt-replace');
+
+			const id = String(idInput?.value || '').trim();
+			if (!isValidId(id)) {
+				idInput?.classList.add('invalid');
+				throw new Error('ID 必须是 6~7 位数字');
+			}
+
+			return {
+				branch: getBranch(),
+				id,
+				config: String(configSelect?.value || 'Dev'),
+				options: {
+					recordPerf: Boolean(recordPerf?.checked),
+					enableLog: Boolean(enableLog?.checked),
+					replace: Boolean(replace?.checked),
+				},
+				_ui: { runBtn },
+			};
+		}
+
+		async function fetchList() {
+			const branch = getBranch();
+			setStatus(`加载中：${API_LIST}?branch=${branch} ...`);
+			const url = `${API_LIST}?branch=${encodeURIComponent(branch)}`;
+
+			const resp = await fetch(url, { method: 'GET' });
+			if (!resp.ok) {
+				const text = await resp.text().catch(() => '');
+				throw new Error(`GET 失败：${resp.status} ${resp.statusText}${text ? ` - ${text}` : ''}`);
+			}
+
+			const json = await resp.json();
+			const items = normalizeListResponse(json);
+			const tbody = document.getElementById('launch-table-body');
+			tbody.innerHTML = '';
+			items.forEach(item => tbody.appendChild(createRow(item)));
+
+			setStatus(`已加载 ${items.length} 行（${branch}）`);
+		}
+
+		async function runOne(tr) {
+			let payload;
+			try {
+				payload = getRowPayload(tr);
+			} catch (e) {
+				setStatus(e?.message || '参数校验失败', true);
+				return;
+			}
+
+			const runBtn = payload._ui.runBtn;
+			delete payload._ui;
+
+			runBtn.disabled = true;
+			const oldText = runBtn.textContent;
+			runBtn.textContent = '启动中...';
+
+			try {
+				setStatus(`POST ${API_RUN}（${payload.branch} / ${payload.id} / ${payload.config}）...`);
+				const resp = await fetch(API_RUN, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload),
+				});
+
+				if (!resp.ok) {
+					const text = await resp.text().catch(() => '');
+					throw new Error(`启动失败：${resp.status} ${resp.statusText}${text ? ` - ${text}` : ''}`);
+				}
+
+				// 允许后端返回 JSON 或纯文本
+				const contentType = resp.headers.get('content-type') || '';
+				if (contentType.includes('application/json')) {
+					const result = await resp.json();
+					setStatus(`启动已提交：${payload.id}（返回：${JSON.stringify(result)}）`);
+				} else {
+					const resultText = await resp.text().catch(() => '');
+					setStatus(`启动已提交：${payload.id}${resultText ? `（返回：${resultText}）` : ''}`);
+				}
+			} catch (e) {
+				setStatus(e?.message || '启动失败', true);
+			} finally {
+				runBtn.disabled = false;
+				runBtn.textContent = oldText;
+			}
+		}
+
+		function wireEvents() {
+			document.getElementById('refresh-btn').addEventListener('click', async () => {
+				try {
+					await fetchList();
+				} catch (e) {
+					setStatus(e?.message || '加载失败', true);
+				}
+			});
+
+			document.getElementById('branch-select').addEventListener('change', async () => {
+				try {
+					await fetchList();
+				} catch (e) {
+					setStatus(e?.message || '加载失败', true);
+				}
+			});
+		}
+
+		window.addEventListener('load', async () => {
+			wireEvents();
+			try {
+				await fetchList();
+			} catch (e) {
+				setStatus(e?.message || '加载失败', true);
+			}
+		});
+	</script>
+</body>
+</html>
