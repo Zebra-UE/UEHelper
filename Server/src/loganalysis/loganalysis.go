@@ -2,14 +2,15 @@ package loganalysis
 
 import (
 	"UEHelper/src/task"
-	"archive/zip"
 	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,15 @@ import (
 type FLogAnalysis struct {
 	FileItem []FFileItem
 	NameHash map[string]int
+}
+
+var ueLogLineRe = regexp.MustCompile(`^\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d+)\]\[ *(\d{1,3})\](.*)$`)
+
+var ueVerbositySet = map[string]bool{
+	"Warning": true,
+	"Error":   true,
+	"Fatal":   true,
+	"Display": true,
 }
 
 var instance *FLogAnalysis
@@ -58,56 +68,6 @@ type FFileItem struct {
 	IsDecrypted bool
 }
 
-func unzip(src string) (string, error) {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return "", err
-	}
-	defer r.Close()
-	dest := strings.TrimSuffix(src, ".zip")
-	for _, f := range r.File {
-		// 防止 Zip Slip 漏洞 (通过 ../ 访问到目标目录之外)
-		fpath := filepath.Join(dest, f.Name)
-		if !strings.HasPrefix(fpath, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return "", fmt.Errorf("%s: illegal file path", fpath)
-		}
-
-		if f.FileInfo().IsDir() {
-			// 如果是目录，直接创建
-			os.MkdirAll(fpath, os.ModePerm)
-			continue
-		}
-
-		// 创建当前文件所在的目录
-		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-			return "", err
-		}
-
-		// 创建并写入目标文件
-		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return "", err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			outFile.Close()
-			return "", err
-		}
-
-		_, err = io.Copy(outFile, rc)
-
-		// 确保文件被正确关闭
-		outFile.Close()
-		rc.Close()
-
-		if err != nil {
-			return "", err
-		}
-	}
-	return dest, nil
-}
-
 func View(ctx *gin.Context) {
 
 	items := List("C:/Users/36038/Downloads")
@@ -133,12 +93,14 @@ func AnalyzeAPI(ctx *gin.Context) {
 			return
 		} else {
 			if fileItem.UnZipPath == "" {
-				unzipPath, err := unzip(fileItem.Path)
-				if err != nil {
-					ctx.JSON(500, gin.H{"error": "Failed to unzip file: " + err.Error()})
-					return
+				unzipTask := task.FUnzipTask{
+					Src:    path.Join(fileItem.Path),
+					Target: "",
+					Sync:   true,
 				}
-				fileItem.UnZipPath = unzipPath
+				unzipTask.Run()
+
+				fileItem.UnZipPath = ""
 			}
 			if fileItem.LogFileName == "" && fileItem.UnZipPath != "" {
 				fileItem.LogFileName = findLogFile(fileItem.UnZipPath)
@@ -193,17 +155,68 @@ func TryGenerateRemark(logPath string) string {
 
 	scanner := bufio.NewScanner(f)
 	var remark string
+	var bOpenCheckMessage bool
+	bOpenCheckMessage = false
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "An uncompress error occurred") {
-			remark = "Oodle问题，解压问题"
+
+		m := ueLogLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		// time, frame := m[1], strings.TrimSpace(m[2])
+		rest := m[3] // Category: Verbosity: Message
+		category, verbosity, message := "", "Log", rest
+		if idx := strings.Index(rest, ":"); idx != -1 {
+			category = rest[:idx]
+			after := rest[idx+1:]
+			if idx2 := strings.Index(after, ":"); idx2 != -1 {
+				v := strings.TrimSpace(after[:idx2])
+				if ueVerbositySet[v] {
+					verbosity = v
+					message = strings.TrimSpace(after[idx2+1:])
+				} else {
+					message = strings.TrimSpace(after)
+				}
+			} else {
+				message = strings.TrimSpace(after)
+			}
+		}
+		_ = category
+		_ = verbosity
+		_ = message
+
+		if !bOpenCheckMessage {
+			if strings.Contains(message, "An uncompress error occurred") {
+				remark = "Oodle问题，解压问题"
+				break
+			}
+			if strings.Contains(message, "OodleLZ_Decompress failed") {
+				remark = "Oodle问题，解压失败"
+				break
+			}
+			if strings.Contains(message, "Failed to enter ") {
+				remark = "启动参数不对:" + message
+				break
+			}
+			if strings.Contains(message, "Gravitation check failed") {
+				bOpenCheckMessage = true
+			}
+		} else if bOpenCheckMessage {
+			expression := ""
+			if index := strings.Index(message, "Expression"); index != -1 {
+
+				expression = strings.TrimSpace(message[index+13:])
+			}
+
+			if strings.Contains(expression, "!FirstFreeBlock") {
+				remark = fmt.Sprintf("内存异常:\n%s", expression)
+			}
+
 			break
 		}
-		if strings.Contains(line, "OodleLZ_Decompress failed") {
-			remark = "Oodle问题，解压失败"
-			break
-		}
+
 	}
 
 	if remark != "" {

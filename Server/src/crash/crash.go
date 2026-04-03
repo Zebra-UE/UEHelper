@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func unZip(src, dest string) error {
@@ -88,6 +89,26 @@ func unZip(src, dest string) error {
 	return nil
 }
 
+func findStack(crashFile, outputPath string) {
+	cdb := "C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+	//symbolpath := fmt.Sprintf("cache*%s;", "C:/mysymbol")
+	var symbolpath string
+	//SRV*C:\mysymbol*http://msdl.microsoft.com/download/symbols;Y:\SymStore
+	symbolpath = fmt.Sprintf("SRV*%s*http://msdl.microsoft.com/download/symbols;%s;", "C:/mysymbol", "Y:/SymStore")
+	symbolpath = "C:mysymbol;Y:/SymStore;SRV*https://msdl.microsoft.com/download/symbols"
+	//symbolpath = fmt.Sprintf("cache*%s;", "C:/mysymbol")
+	//symbolpath = symbolpath + fmt.Sprintf("srv*%s*%s;", "C:/mysymbol", "Y:/SymStore")
+	//symbolpath = symbolpath + fmt.Sprintf("srv*%s*http://msdl.microsoft.com/download/symbols;", "C:/mysymbol")
+	cmd := exec.Command(cdb, "-z", crashFile, "-lines", "-c", "!analyze -v;q", "-logo", outputPath, "-y", symbolpath)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	if err != nil {
+		fmt.Println(fmt.Sprint(err) + ": " + stderr.String())
+	}
+}
+
 func Run(dmpFile string) string {
 	var zipfile string
 	if path.Ext(dmpFile) == ".zip" {
@@ -126,29 +147,19 @@ func Run(dmpFile string) string {
 		return ""
 	}
 
-	outputPath := filepath.Join(dmpFile, "result.log")
+	outputPath := filepath.Join(dmpFile, "stack.log")
+	var wg sync.WaitGroup
 
 	_, err = os.Stat(outputPath)
 	if err != nil && os.IsNotExist(err) {
-		cdb := "C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-		//symbolpath := fmt.Sprintf("cache*%s;", "C:/mysymbol")
-		var symbolpath string
-		//SRV*C:\mysymbol*http://msdl.microsoft.com/download/symbols;Y:\SymStore
-		symbolpath = fmt.Sprintf("SRV*%s*http://msdl.microsoft.com/download/symbols;%s;", "C:/mysymbol", "Y:/SymStore")
-		symbolpath = "C:mysymbol;Y:/SymStore;SRV*https://msdl.microsoft.com/download/symbols"
-		//symbolpath = fmt.Sprintf("cache*%s;", "C:/mysymbol")
-		//symbolpath = symbolpath + fmt.Sprintf("srv*%s*%s;", "C:/mysymbol", "Y:/SymStore")
-		//symbolpath = symbolpath + fmt.Sprintf("srv*%s*http://msdl.microsoft.com/download/symbols;", "C:/mysymbol")
-		cmd := exec.Command(cdb, "-z", crashFile, "-lines", "-c", "!analyze -v;q", "-logo", outputPath, "-y", symbolpath)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		err = cmd.Run()
-
-		if err != nil {
-			fmt.Println(fmt.Sprint(err) + ": " + stderr.String())
-			return ""
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			findStack(crashFile, outputPath)
+		}()
 	}
+
+	wg.Wait()
 
 	_, err = os.Stat(outputPath)
 	if err != nil && os.IsNotExist(err) {

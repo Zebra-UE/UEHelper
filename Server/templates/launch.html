@@ -156,6 +156,71 @@
 			font-size: 12px;
 			color: #667085;
 		}
+
+		.toolbar-right {
+			display: flex;
+			flex-direction: column;
+			align-items: flex-end;
+			gap: 6px;
+			min-width: 220px;
+		}
+
+		.ws-badge {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 12px;
+			font-weight: 600;
+			color: #667085;
+		}
+
+		.ws-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: #d0d5dd;
+			flex-shrink: 0;
+			transition: background 0.3s;
+		}
+		.ws-dot.live  { background: #22c55e; box-shadow: 0 0 5px #22c55e88; }
+		.ws-dot.error { background: #ef4444; }
+
+		.ws-log {
+			display: none;
+			max-height: 72px;
+			overflow-y: auto;
+			font-size: 11px;
+			color: #667085;
+			background: #f9fafb;
+			border: 1px solid #eaecf0;
+			border-radius: 6px;
+			padding: 4px 8px;
+			width: 220px;
+			word-break: break-all;
+		}
+		.ws-log.visible { display: block; }
+
+		.row-log {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+			font-size: 11px;
+			min-width: 180px;
+		}
+		.row-log-line {
+			padding: 2px 6px;
+			border-radius: 4px;
+			background: #f9fafb;
+			color: #667085;
+			word-break: break-all;
+			white-space: pre-wrap;
+			line-height: 1.4;
+			transition: opacity 0.3s;
+		}
+		.row-log-line:empty { display: none; }
+		.row-log-line.ok   { color: #15803d; background: #f0fdf4; }
+		.row-log-line.err  { color: #b42318; background: #fff5f4; }
+		.row-log-line.info { color: #1d4ed8; background: #eff6ff; }
 	</style>
 </head>
 
@@ -172,7 +237,14 @@
 					<button class="btn" id="refresh-btn" type="button">刷新列表</button>
 					<div class="hint">打开页面会自动拉取 /launch/api/list</div>
 				</div>
-				<div class="status" id="status"></div>
+				<div class="toolbar-right">
+					<div class="ws-badge">
+						<div class="ws-dot" id="wsDot"></div>
+						<span id="wsLabel">WS: 连接中...</span>
+					</div>
+					<div class="ws-log" id="wsLog"></div>
+					<div class="status" id="status"></div>
+				</div>
 			</div>
 
 			<table>
@@ -180,8 +252,7 @@
 					<tr>
 						<th style="width: 180px;">ID</th>
 						<th>选项</th>
-						<th style="width: 180px;">配置</th>
-						<th style="width: 140px;">启动</th>
+						<th style="width: 180px;">配置</th>					<th style="min-width: 200px;">状态</th>						<th style="width: 140px;">启动</th>
 					</tr>
 				</thead>
 				<tbody id="launch-table-body">
@@ -194,6 +265,12 @@
 	<script>
 		const API_LIST = '/launch/api/list';
 		const API_RUN = '/launch/api/run';
+		const WS_URL = 'ws://127.0.0.1:1122/launch/ws';
+
+		let ws = null;
+		let wsConnected = false;
+		let wsRetryTimer = null;
+		let pendingRow = null; // 最近一次点击启动的行
 
 		function setStatus(message, isError = false) {
 			const el = document.getElementById('status');
@@ -208,6 +285,8 @@
 		function normalizeListResponse(raw) {
 			if (raw == null) return [];
 			if (Array.isArray(raw)) return raw;
+			if (Array.isArray(raw.changelist)) return raw.changelist;
+			if (Array.isArray(raw.Changelist)) return raw.Changelist;
 			if (Array.isArray(raw.items)) return raw.items;
 			if (Array.isArray(raw.Items)) return raw.Items;
 			if (Array.isArray(raw.data)) return raw.data;
@@ -216,6 +295,7 @@
 		}
 
 		function pickId(item) {
+			if (typeof item === 'string' || typeof item === 'number') return item;
 			return (
 				item?.id ??
 				item?.Id ??
@@ -262,20 +342,13 @@
 			const opts = pickOptions(item);
 
 			const tr = document.createElement('tr');
+			tr.dataset.id = idValue;
 
 			const tdId = document.createElement('td');
-			const idInput = document.createElement('input');
-			idInput.type = 'text';
-			idInput.value = idValue;
-			idInput.placeholder = '6-7位数字';
-			idInput.inputMode = 'numeric';
-			idInput.autocomplete = 'off';
-			idInput.spellcheck = false;
-			idInput.addEventListener('input', () => {
-				idInput.classList.toggle('invalid', !isValidId(idInput.value));
-			});
-			idInput.classList.toggle('invalid', idValue.length > 0 && !isValidId(idValue));
-			tdId.appendChild(idInput);
+			tdId.textContent = idValue;
+			if (idValue.length > 0 && !isValidId(idValue)) {
+				tdId.style.color = '#b42318';
+			}
 
 			const tdOptions = document.createElement('td');
 			const optionsDiv = document.createElement('div');
@@ -316,11 +389,24 @@
 			}
 			tdConfig.appendChild(configSelect);
 
+			// 状态列：两行日志，新消息顶替下行，下行升上行
+			const tdLog = document.createElement('td');
+			const logWrap = document.createElement('div');
+			logWrap.className = 'row-log';
+			const logLine0 = document.createElement('div');
+			logLine0.className = 'row-log-line';
+			const logLine1 = document.createElement('div');
+			logLine1.className = 'row-log-line';
+			logWrap.appendChild(logLine0);
+			logWrap.appendChild(logLine1);
+			tdLog.appendChild(logWrap);
+
 			const tdRun = document.createElement('td');
 			const runBtn = document.createElement('button');
 			runBtn.type = 'button';
 			runBtn.className = 'btn primary run-btn';
 			runBtn.textContent = '启动';
+			runBtn.disabled = !wsConnected;
 			runBtn.addEventListener('click', async () => {
 				await runOne(tr);
 			});
@@ -329,27 +415,26 @@
 			tr.appendChild(tdId);
 			tr.appendChild(tdOptions);
 			tr.appendChild(tdConfig);
+			tr.appendChild(tdLog);
 			tr.appendChild(tdRun);
 			return tr;
 		}
 
 		function getRowPayload(tr) {
-			const idInput = tr.querySelector('input[type="text"]');
 			const runBtn = tr.querySelector('button.run-btn');
 			const configSelect = tr.querySelector('select.config-select');
 			const recordPerf = tr.querySelector('input.opt-record-perf');
 			const enableLog = tr.querySelector('input.opt-enable-log');
 			const replace = tr.querySelector('input.opt-replace');
 
-			const id = String(idInput?.value || '').trim();
+			const id = String(tr?.dataset?.id || '').trim();
 			if (!isValidId(id)) {
-				idInput?.classList.add('invalid');
 				throw new Error('ID 必须是 6~7 位数字');
 			}
 
 			return {
 				branch: getBranch(),
-				id,
+				changelist: id,
 				config: String(configSelect?.value || 'Dev'),
 				options: {
 					recordPerf: Boolean(recordPerf?.checked),
@@ -380,7 +465,18 @@
 			setStatus(`已加载 ${items.length} 行（${branch}）`);
 		}
 
-		async function runOne(tr) {
+		function pushRowLog(tr, text, cls) {
+			const lines = tr.querySelectorAll('.row-log-line');
+			if (lines.length < 2) return;
+			// 下行 → 上行
+			lines[0].textContent = lines[1].textContent;
+			lines[0].className   = lines[1].className;
+			// 新内容 → 下行
+			lines[1].textContent = text;
+			lines[1].className   = 'row-log-line ' + (cls || 'info');
+		}
+
+		function runOne(tr) {
 			let payload;
 			try {
 				payload = getRowPayload(tr);
@@ -388,42 +484,75 @@
 				setStatus(e?.message || '参数校验失败', true);
 				return;
 			}
-
-			const runBtn = payload._ui.runBtn;
 			delete payload._ui;
 
-			runBtn.disabled = true;
-			const oldText = runBtn.textContent;
-			runBtn.textContent = '启动中...';
-
-			try {
-				setStatus(`POST ${API_RUN}（${payload.branch} / ${payload.id} / ${payload.config}）...`);
-				const resp = await fetch(API_RUN, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(payload),
-				});
-
-				if (!resp.ok) {
-					const text = await resp.text().catch(() => '');
-					throw new Error(`启动失败：${resp.status} ${resp.statusText}${text ? ` - ${text}` : ''}`);
-				}
-
-				// 允许后端返回 JSON 或纯文本
-				const contentType = resp.headers.get('content-type') || '';
-				if (contentType.includes('application/json')) {
-					const result = await resp.json();
-					setStatus(`启动已提交：${payload.id}（返回：${JSON.stringify(result)}）`);
-				} else {
-					const resultText = await resp.text().catch(() => '');
-					setStatus(`启动已提交：${payload.id}${resultText ? `（返回：${resultText}）` : ''}`);
-				}
-			} catch (e) {
-				setStatus(e?.message || '启动失败', true);
-			} finally {
-				runBtn.disabled = false;
-				runBtn.textContent = oldText;
+			if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+				setStatus('WS 未连接，无法发送', true);
+				return;
 			}
+
+			pendingRow = tr;
+			pushRowLog(tr, '发送中...', 'info');
+			ws.send(JSON.stringify(payload));
+			setStatus(`已发送启动请求：${payload.branch} / ${payload.changelist} / ${payload.config}`);
+		}
+
+		function setWsState(state) {
+			const dot = document.getElementById('wsDot');
+			const label = document.getElementById('wsLabel');
+			dot.className = 'ws-dot' + (state === 'live' ? ' live' : state === 'error' ? ' error' : '');
+			label.textContent = state === 'live' ? 'WS: 已连接' :
+				state === 'error' ? 'WS: 断开，重连中...' : 'WS: 连接中...';
+			wsConnected = state === 'live';
+			document.querySelectorAll('button.run-btn').forEach(btn => {
+				btn.disabled = !wsConnected;
+			});
+		}
+
+		function appendWsLog(text) {
+			const log = document.getElementById('wsLog');
+			log.classList.add('visible');
+			const line = document.createElement('div');
+			line.textContent = new Date().toLocaleTimeString() + '  ' + text;
+			log.appendChild(line);
+			while (log.children.length > 30) log.removeChild(log.firstChild);
+			log.scrollTop = log.scrollHeight;
+		}
+
+		function connectWs() {
+			clearTimeout(wsRetryTimer);
+			setWsState('connecting');
+			ws = new WebSocket(WS_URL);
+
+			ws.onopen = () => {
+				setWsState('live');
+				appendWsLog('连接成功');
+			};
+
+			ws.onmessage = (e) => {
+				let text = e.data;
+				let cls = 'info';
+				let msgType = '';
+				try {
+					const data = JSON.parse(e.data);
+					text = JSON.stringify(data.payload ?? data);
+					msgType = data.type || '';
+					cls = msgType === 'error' ? 'err' : msgType === 'success' ? 'ok' : 'info';
+				} catch (_) {}
+				appendWsLog(text);
+				if (pendingRow) {
+					pushRowLog(pendingRow, text, cls);
+					// 只有终态消息才清除 pendingRow
+					if (msgType === 'success' || msgType === 'error') {
+						pendingRow = null;
+					}
+				}
+			};
+
+			ws.onclose = ws.onerror = () => {
+				setWsState('error');
+				wsRetryTimer = setTimeout(connectWs, 3000);
+			};
 		}
 
 		function wireEvents() {
@@ -446,6 +575,7 @@
 
 		window.addEventListener('load', async () => {
 			wireEvents();
+			connectWs();
 			try {
 				await fetchList();
 			} catch (e) {

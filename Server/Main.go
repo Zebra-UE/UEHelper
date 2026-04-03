@@ -1,6 +1,7 @@
 package main
 
 import (
+	Launch "UEHelper/src/launch"
 	"UEHelper/src/loganalysis"
 	"UEHelper/src/tool"
 
@@ -23,6 +24,10 @@ func main() {
 	})
 	r.GET("/api/tool/list", tool.GetToolList)
 	r.POST("/api/tool/run", tool.RunTool)
+
+	r.GET("/launch", Launch.View)
+	r.GET("/launch/api/list", Launch.List)
+	r.GET("/launch/ws", Launch.Run)
 
 	r.GET("/tool/run", func(c *gin.Context) {
 		c.HTML(200, "tool_run.html", nil)
